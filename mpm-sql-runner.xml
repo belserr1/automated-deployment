@@ -1,0 +1,207 @@
+<project name="reset-mpm-database" default="run-scripts" basedir=".">
+
+	<property environment="env" />
+	<property name="qa.script.dir" value="autodeployment-qa-scripts" />
+
+	<path id="run.classpath">
+		<fileset dir="${basedir}">
+			<include name="mpm*/lib/*.jar" />
+		</fileset>
+	</path>
+
+	<target name="check.database.vendor">
+		<condition property="oracle.vendor">
+			<contains string="${env.DATABASE}" substring="oracle" />
+		</condition>
+
+		<condition property="db2luw.vendor">
+			<contains string="${env.DATABASE}" substring="db2luw" />
+		</condition>
+
+		<condition property="mssql.vendor">
+			<contains string="${env.DATABASE}" substring="mssql" />
+		</condition>
+
+		<condition property="db2i.vendor">
+			<contains string="${env.DATABASE}" substring="db2i" />
+		</condition>
+	</target>
+
+	<target name="oracle.schema.exists.check">
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured" output="ant-sql.properties" print="yes">
+			<transaction>
+				select username "oracle.schema=\" from all_users where username = '${main.schema}';
+  		</transaction>
+		</sql>
+		<property file="ant-sql.properties" />
+		
+		<condition property="oracle.schema.exists">
+			<equals arg1="${main.schema}" arg2="${oracle.schema}" />
+		</condition>
+		<echo message="oracle.schema.exists=${oracle.schema.exists}" />
+		<delete file="ant-sql.properties" />
+	</target>
+
+	<target name="db2luw.schema.exists.check">
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured" output="ant-sql.properties" print="yes">
+			<transaction>
+				select schemaname "db2luw.schema=" from syscat.schemata where schemaname = '${main.schema}';
+  		</transaction>
+		</sql>
+		<loadfile srcFile="ant-sql.properties" property="sql.result" />
+		
+		<condition property="db2luw.schema.exists">
+			<contains string="${sql.result}" substring="${main.schema}" />
+		</condition>
+		<echo message="db2luw.schema.exists=${db2luw.schema.exists}" />
+		<delete file="ant-sql.properties" />
+	</target>
+
+	<target name="mssql.schema.exists.check">
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured" output="ant-sql.properties" print="yes">
+			<transaction>
+				select name "mssql.schema=\" from sys.schemas where name = '${main.schema}';
+  		</transaction>
+		</sql>
+		<property file="ant-sql.properties" />
+		
+		<condition property="mssql.schema.exists">
+			<equals arg1="${main.schema}" arg2="${mssql.schema}" />
+		</condition>
+		<echo message="mssql.schema.exists=${mssql.schema.exists}" />
+		<delete file="ant-sql.properties" />
+	</target>
+
+	<target name="db2i.schema.exists.check">
+    <echo message="Implement Me...." />
+	</target>
+	
+	<target name="oracle.runner" if="oracle.vendor">
+		<antcall target="run.oracle" />
+	</target>
+  
+  <target name="db2luw.runner" if="db2luw.vendor">
+    <antcall target="run.db2luw" />
+  </target>
+  
+  <target name="mssql.runner" if="mssql.vendor">
+    <antcall target="run.mssql" />
+  </target>
+    
+    <target name="db2i.runner" if="db2i.vendor">
+      <antcall target="run.db2i" />
+    </target>
+
+	<target name="run.oracle" if="oracle.schema.exists" depends="oracle.schema.exists.check">
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured">
+			<transaction>
+	      DROP USER ${main.schema} cascade;
+	      DROP USER ${archive.schema} cascade;
+	      --
+	      DROP TABLESPACE ${tablespace.data} including contents and datafiles;
+	      DROP TABLESPACE ${tablespace.index} including contents and datafiles;
+	      DROP TABLESPACE ${tablespace.arc.data} including contents and datafiles;
+	      DROP TABLESPACE ${tablespace.arc.index} including contents and datafiles;
+	      DROP TABLESPACE ${tablespace.temp} including contents and datafiles;
+    	</transaction>
+		</sql>
+	</target>
+
+	<target name="run.db2luw" if="db2luw.schema.exists" depends="db2luw.schema.exists.check">
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured" output="db2-drop-output.sql" print="yes" showtrailers="no" showheaders="no">
+			<transaction>
+			  select 'drop table ' || rtrim(tabschema) || '.' || rtrim(tabname) || ';'from syscat.tables where type = 'T' and (tabschema='${main.schema}' or tabschema='${archive.schema}');
+			  select 'drop view ' || rtrim(tabschema) || '.' || rtrim(tabname) || ';'from syscat.tables where type = 'V' and (tabschema='${main.schema}' or tabschema='${archive.schema}');
+			  select 'drop procedure ' || rtrim(procschema) || '.' || rtrim(procname) || ';'from syscat.procedures where procschema='${main.schema}' or procschema='${archive.schema}';
+			  select 'drop sequence ' || rtrim(seqschema) || '.' || rtrim(seqname) || ';'from syscat.sequences where seqschema='${main.schema}' or seqschema='${archive.schema}';
+    	</transaction>
+		</sql>
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured">
+    	<transaction src="db2-drop-output.sql" />
+    	<transaction>
+    	  DROP SCHEMA ${main.schema} RESTRICT;
+    	  DROP SCHEMA ${archive.schema} RESTRICT;
+    	  
+	      DROP TABLESPACE ${tablespace.data};
+	      DROP TABLESPACE ${tablespace.index};
+	      DROP TABLESPACE ${tablespace.long};
+	      DROP TABLESPACE ${tablespace.arc.data};
+	      DROP TABLESPACE ${tablespace.arc.index};
+	      DROP TABLESPACE ${tablespace.arc.long};
+	    </transaction>
+		</sql>
+		<delete file="db2-drop-output.sql" />
+	</target>
+
+	<target name="run.mssql" if="mssql.schema.exists" depends="mssql.schema.exists.check">
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured" output="mssql-drop-output.sql" print="yes" showtrailers="no" showheaders="no">
+			<transaction>
+			  SELECT 'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(object_id)) + '.' + QUOTENAME(OBJECT_NAME(parent_object_id)) + ' DROP CONSTRAINT ' + QUOTENAME(name) + ';' FROM sys.foreign_keys;
+			  SELECT 'DROP TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(object_id)) + '.' + QUOTENAME(name) + ';' FROM sys.tables where OBJECT_SCHEMA_NAME(object_id) = '${main.schema}' or OBJECT_SCHEMA_NAME(object_id) = '${archive.schema}';
+			  SELECT 'DROP VIEW ' + QUOTENAME(OBJECT_SCHEMA_NAME(object_id)) + '.' + QUOTENAME(name) + ';' FROM sys.views where OBJECT_SCHEMA_NAME(object_id) = '${main.schema}' or OBJECT_SCHEMA_NAME(object_id) = '${archive.schema}';
+			  SELECT 'DROP PROCEDURE ' + QUOTENAME(OBJECT_SCHEMA_NAME(object_id)) + '.' + QUOTENAME(name) + ';' FROM sys.procedures where OBJECT_SCHEMA_NAME(object_id) = '${main.schema}' or OBJECT_SCHEMA_NAME(object_id) = '${archive.schema}';
+			  SELECT 'DROP SEQUENCE ' + QUOTENAME(OBJECT_SCHEMA_NAME(object_id)) + '.' + QUOTENAME(name) + ';' FROM sys.sequences where OBJECT_SCHEMA_NAME(object_id) = '${main.schema}' or OBJECT_SCHEMA_NAME(object_id) = '${archive.schema}';
+    	</transaction>
+		</sql>
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" treatWarningsAsErrors="yes" errorproperty="database.error.occured">
+    	<transaction src="mssql-drop-output.sql" />
+    	<transaction>
+    	  DROP SCHEMA ${main.schema};
+    	  DROP SCHEMA ${archive.schema};
+	    </transaction>
+		</sql>
+		<delete file="mssql-drop-output.sql" />
+	</target>
+
+	<target name="run.db2i" if="db2i.schema.exists" depends="db2i.schema.exists.check">
+	</target>
+
+  <target name="run.qa.scripts" depends="check.database.vendor">
+		<antcall target="echo.vendor" />
+		
+    <replace dir="${qa.script.dir}" token="{SCHEMA}" value="${main.schema}" includes="**/*.sql" preserveLastModified="yes" />
+    
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" errorproperty="database.error.occured">
+		  <transaction src="${qa.script.dir}/1_generic.sql" />
+	  </sql>
+	  <sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" errorproperty="database.error.occured">
+	    <sort>
+		    <fileset dir="${qa.script.dir}">
+		      <include name="**/oracle/*.sql" if="oracle.vendor" />
+		      <include name="**/db2luw/*.sql" if="db2luw.vendor" />
+		      <include name="**/mssql/*.sql" if="mssql.vendor" />
+		      <include name="**/db2i/*.sql" if="db2i.vendor" />
+		    </fileset>
+		  </sort>
+		</sql>
+		<sql url="${mainUrl}" userid="${username}" password="${password}" driver="${driver}" classpathref="run.classpath" onerror="abort" errorproperty="database.error.occured">
+		  <transaction src="${qa.script.dir}/MPM6_BANKDIRECTORYPLUS.sql" />
+		</sql>
+		<fail if="${database.error.occured}" />
+  </target>
+  
+  <target name="echo.vendor">
+		<echo message="check.database.vendor=${oracle.vendor}" />
+		<echo message="check.database.vendor=${db2luw.vendor}" />
+		<echo message="check.database.vendor=${mssql.vendor}" />
+		<echo message="check.database.vendor=${db2i.vendor}" />
+  </target>
+
+	<target name="run-scripts" depends="check.database.vendor">
+		<pathconvert property="the.classpath" refid="run.classpath" />
+		<echo level="debug" message="the.classpath=${the.classpath}" />
+		
+		<antcall target="echo.vendor" />
+
+		<echo message="main.schema=${main.schema}" />
+		<echo message="ant.version=${ant.version}" />
+
+		<antcall target="oracle.runner" />
+		<antcall target="db2luw.runner" />
+		<antcall target="mssql.runner" />
+		<antcall target="db2i.runner" />
+		
+		<fail if="${database.error.occured}" />
+	</target>
+
+</project>

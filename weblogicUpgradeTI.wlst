@@ -1,0 +1,41 @@
+import sys;
+
+adminUser = sys.argv[1];
+adminPassword = sys.argv[2];
+machineName = sys.argv[3];
+tiApp = sys.argv[4];
+globalApp = sys.argv[5];
+globalServer = sys.argv[6];
+tiServer = sys.argv[7];
+deploymentFolder = sys.argv[8];
+
+connect(adminUser, adminPassword, 't3://' + machineName + ':6011');
+
+edit();
+startEdit();
+print 'Undeploying applications...';
+undeploy(tiApp, block='true');
+undeploy(globalApp, block='true');
+save();
+activate();
+
+print 'Shutting down servers...';
+shutdown(globalServer, force='true', block='true');
+shutdown(tiServer, force='true', block='true');
+
+print 'Starting up servers...';
+start(globalServer, 'Server', 't3://' + machineName + ':6011', block='true');
+start(tiServer, 'Server', 't3://' + machineName + ':6011', block='true');
+
+print 'Deploying applications...';
+startEdit();
+deploy(globalApp, deploymentFolder + '/' + globalApp + '.ear', targets=globalServer, block='true', stageMode='nostage');
+deploy(tiApp, deploymentFolder + '/' + tiApp + '.ear', targets=tiServer, block='true', stageMode='nostage');
+save();
+activate();
+
+startApplication(globalApp);
+startApplication(tiApp);
+
+disconnect();
+exit();
